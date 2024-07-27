@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>LA Crime Map</title>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f9f9f9;
+            color: #333;
+        }
+
+        .main-title {
+            text-align: center;
+            padding: 20px;
+            font-size: 28px;
+            color: #333;
+            background-color: white;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        #loginSection, #mapSection {
+            display: none;
+            padding: 20px;
+            margin: 20px auto;
+            width: 80%;
+            max-width: 500px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        #map {
+            height: 400px;
+            width: 100%;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        input[type=text], input[type=password], input[type=number], input[type=date] {
+            padding: 10px;
+            margin: 10px 0;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            width: calc(100% - 22px);
+            box-sizing: border-box;
+        }
+
+        input[type=submit], button {
+            background-color: #555;
+            color: white;
+            padding: 10px 15px;
+            margin: 10px 0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+        }
+
+        input[type=submit]:hover, button:hover {
+            background-color: #333;
+        }
+
+        h3 {
+            text-align: center;
+            color: #333;
+        }
+
+        .button-group {
+            text-align: center;
+        }
+
+        .form-group {
+            margin: 15px 0;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="main-title">LA Crime Map</div>
+    <div id="loginSection">
+        <form id="loginForm" onsubmit="return validateForm()">
+            <h3>Login</h3>
+            <div class="form-group">
+                <label for="username">Username:</label>
+                <input type="text" id="username" name="username" required>
+            </div>
+            <div class="form-group">
+                <label for="password">Password:</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            <input type="submit" value="Login">
+        </form>
+    </div>
+  
+    <div id="welcomeMessage" style="display: none;">
+        <h3>Welcome, <span id="welcomeUsername"></span>!</h3>
+    </div>   
+
+    <div id="mapSection">
+        <div class="form-group">
+            <input type="text" id="descriptionInput" placeholder="Enter crime description">
+            <div class="button-group">
+                <button onclick="searchByDescription()">Search</button>
+                <button onclick="resetPage()">Reset Page</button>
+                <button onclick="logout()">Log Out</button>
+            </div>
+        </div>
+        <div class="form-group">
+            <input type="text" id="longitudeInput" placeholder="Enter longitude">
+            <input type="text" id="latitudeInput" placeholder="Enter latitude">
+            <input type="text" id="radiusInput" placeholder="Enter radius (km)">
+            <button onclick="searchByRegion()">Search Region</button>
+            <button onclick="searchConfirmedGunCrimes()">Display Gun Crimes</button>
+        </div>
+        <div id="map"></div>
+        <form id="insertCrimeForm" onsubmit="return submitCrimeCase();">
+            <div class="form-group">
+                <input type="number" id="drNo" placeholder="Enter DR NO" required>
+            </div>
+            <div class="form-group">
+                <input type="text" id="crimeDescription" placeholder="Enter crime description" required>
+            </div>
+            <div class="form-group">
+                <input type="text" id="longitude" placeholder="Enter longitude" required>
+                <input type="text" id="latitude" placeholder="Enter latitude" required>
+            </div>
+            <div class="form-group">
+                <input type="text" id="comment" placeholder="Enter comment" required>
+                <input type="date" id="dateOcc" required>
+            </div>
+            <input type="submit" value="Insert Crime Case">
+        </form>
+
+                
+        <div id="deleteUserSection" style="display: block;">
+            <h3>Delete User</h3>
+            <form id="deleteUserForm">
+                <div class="form-group">
+                    <label for="deleteUsername">Confirm Username:</label>
+                    <input type="text" id="deleteUsername" name="deleteUsername" required>
+                </div>
+                <button type="button" onclick="deleteUser()">Delete User</button>
+            </form>
+        </div>
+
+    </div>
+
+    <script>
+        var map;
+        var markerCluster;
+        var isLoggedIn = false;
+
+        function initMap() {
+            if (!isLoggedIn) {
+                document.getElementById('loginSection').style.display = 'block';
+                document.getElementById('mapSection').style.display = 'none';
+                return;
+            }
+            map = new google.maps.Map(document.getElementById('map'), {
+                zoom: 10,
+                center: {lat: 34.02, lng: -118.4117295}
+            });
+            loadAllLocations();
+        }
+
+        function loadAllLocations() {
+            fetch('/location')
+                .then(response => response.json())
+                .then(data => {
+                    createMarkers(data);
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function createMarkers(locations) {
+            var markers = locations.map(function(location) {
+                var marker = new google.maps.Marker({
+                    position: {lat: location.Latitude, lng: location.Longitude},
+                    title: location.Crime_Description
+                });
+        
+                var contentString = `
+                <div id="content" style="font-family: Arial, sans-serif; padding: 15px;">
+                    <h1 id="firstHeading" class="firstHeading" style="font-size: 18px; margin-bottom: 10px;">Crime Detail</h1>
+                    <div id="bodyContent" style="line-height: 1.6;">
+                        <p style="margin: 5px 0;"><b>DR Number:</b> ${location.DR_NO}</p>
+                        <p style="margin: 5px 0;"><b>Longitude:</b> ${location.Longitude}</p>
+                        <p style="margin: 5px 0;"><b>Latitude:</b> ${location.Latitude}</p>
+                        <p style="margin: 5px 0;"><b>Description:</b> ${location.Crime_Description}</p>
+                        <p style="margin: 5px 0;"><b>Victim Sex:</b> ${location.Victim_Sex}</p>
+                        <p style="margin: 5px 0;"><b>Victim Age:</b> ${location.Victim_Age}</p>
+                        <p style="margin: 5px 0;"><b>Victim Descent:</b> ${location.Victim_Descent}</p>
+                        <p style="margin: 5px 0;"><b>Comment:</b> ${location.Comment}</p>
+                    </div>
+                </div>`;
+            
+        
+                var infowindow = new google.maps.InfoWindow({
+                    content: contentString
+                });
+        
+                marker.addListener('click', function() {
+                    infowindow.open(map, marker);
+                });
+        
+                return marker;
+            });
+        
+            if (markerCluster) {
+                markerCluster.clearMarkers();
+            }
+        
+            markerCluster = new MarkerClusterer(map, markers, {imagePath: 'https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/m'});
+        }
+        
+        function searchByDescription() {
+            var description = document.getElementById('descriptionInput').value;
+            fetch('/description/' + encodeURIComponent(description))
+                .then(response => response.json())
+                .then(data => {
+                    if (markerCluster) {
+                        markerCluster.clearMarkers();
+                    }
+                    createMarkers(data);
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function deleteUser() {
+            var username = document.getElementById('deleteUsername').value;
+    
+            if (username === "") {
+                alert("Username cannot be empty");
+                return false;
+            }
+
+            if(!confirm('Are you sure you want to delete this user?')) {
+                return false;
+            }
+    
+            fetch('/delete-user', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'username=' + encodeURIComponent(username)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('User deleted successfully');
+                    document.getElementById('deleteUsername').value = '';
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert("An error occurred");
+            });
+            return false;
+        }
+
+        function searchByRegion() {
+            var longitude = document.getElementById('longitudeInput').value;
+            var latitude = document.getElementById('latitudeInput').value;
+            var radius = document.getElementById('radiusInput').value;
+            fetch('/region/' + longitude + '/' + latitude + '/' + radius)
+                .then(response => response.json())
+                .then(data => {
+                    if (markerCluster) {
+                        markerCluster.clearMarkers();
+                    }
+                    createMarkers(data);
+                })
+                .catch(error => console.error('Error:', error));
+        }
+
+        function searchConfirmedGunCrimes() {
+            fetch('/confirmed-gun-crimes')
+                .then(response => response.json())
+                .then(data => {
+                    if (markerCluster) {
+                        markerCluster.clearMarkers();
+                    }
+                    createMarkers(data);
+                })
+                .catch(error => console.error('Error:', error));
+        }        
+        
+        function validateForm() {
+            var username = document.getElementById("username").value;
+            var password = document.getElementById("password").value;
+            if (username === "" || password === "") {
+                alert("Username and password cannot be empty");
+                return false;
+            }
+            fetch('/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: 'username=' + encodeURIComponent(username) + '&password=' + encodeURIComponent(password)
+            })
+            .then(response => {
+                if (response.ok) {
+                    isLoggedIn = true;
+                    document.getElementById('loginSection').style.display = 'none';
+                    document.getElementById('mapSection').style.display = 'block';
+                    document.getElementById('welcomeMessage').style.display = 'block';
+                    document.getElementById('welcomeUsername').textContent = username;
+                    initMap();
+                } else {
+                    alert("Login failed! Wrong Password :(");
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert("An error occurred");
+            });
+            return false;
+        }
+
+        function logout() {
+            isLoggedIn = false;
+            location.reload(); // 刷新页面
+        }
+        
+        function resetPage() {
+            if (markerCluster) {
+                markerCluster.clearMarkers();
+            }
+            loadAllLocations(); 
+        }    
+
+        function submitCrimeCase() {
+            var drNo = document.getElementById('drNo').value;
+            var crimeDescription = document.getElementById('crimeDescription').value;
+            var longitude = document.getElementById('longitude').value;
+            var latitude = document.getElementById('latitude').value;
+            var comment = document.getElementById('comment').value;
+            var dateOcc = document.getElementById('dateOcc').value;
+            fetch('/insert-crime', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `dr_no=${encodeURIComponent(drNo)}&crime_description=${encodeURIComponent(crimeDescription)}&longitude=${encodeURIComponent(longitude)}&latitude=${encodeURIComponent(latitude)}&comment=${encodeURIComponent(comment)}&date_occ=${encodeURIComponent(dateOcc)}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('Crime case insert/update successfully');
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            })
+            return false;
+        }
+
+        initMap();
+    </script>
+    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyAlsJQTLr8fJRvAf6s8zLbHBkKu6KtI2r4&callback=initMap" async defer></script>
+    <script src="https://developers.google.com/maps/documentation/javascript/examples/markerclusterer/markerclusterer.js"></script>
+</body>
+</html>
+
